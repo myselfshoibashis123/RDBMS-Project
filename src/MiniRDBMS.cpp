@@ -1,153 +1,240 @@
 #include "../include/MiniRDBMS.hpp"
-#include <iomanip>
-#include <set>
-#include <map>
+#include <iostream>
+#include <fstream>
 #include <algorithm>
-
 using namespace std;
 
-Attribute::Attribute(string name, DataType type) : name(name), type(type) {}
-Record::Record(vector<Value> vals) : values(vals) {}
-Table::Table(string tableName, vector<Attribute> attrs) : name(tableName), schema(attrs) {}
+
+
+Table::Table(std::string name, std::vector<Attribute> schema)
+    : name(name), schema(schema) {}
 
 void Table::insert(Record r) {
     records.push_back(r);
 }
 
 void Table::print() const {
-    cout << "Table: " << name << "\n";
-    for (const auto& attr : schema)
-        cout << setw(10) << attr.name;
-    cout << "\n";
+    for (const auto& attr : schema) {
+        cout << attr.name << "\t";
+    }
+    cout << endl;
+
     for (const auto& rec : records) {
         for (const auto& val : rec.values) {
             if (holds_alternative<int>(val))
-                cout << setw(10) << get<int>(val);
+                cout << get<int>(val) << "\t";
             else
-                cout << setw(10) << get<string>(val);
+                cout << get<string>(val) << "\t";
         }
-        cout << "\n";
+        cout << endl;
     }
 }
 
-string Table::getName() const { return name; }
+void Table::selectWhere(string col, string op, Value val) const {
+    int idx = -1;
+    for (int i = 0; i < schema.size(); ++i) {
+        if (schema[i].name == col) {
+            idx = i;
+            break;
+        }
+    }
 
-void Table::selectWhere(const string& attrName, const string& op, const Value& val) {
-    int index = -1;
-    for (int i = 0; i < schema.size(); ++i)
-        if (schema[i].name == attrName)
-            index = i;
+    if (idx == -1) {
+        cout << "Column not found.\n";
+        return;
+    }
 
     for (const auto& rec : records) {
-        bool condition = false;
-        if (holds_alternative<int>(val) && holds_alternative<int>(rec.values[index])) {
-            int v1 = get<int>(val);
-            int v2 = get<int>(rec.values[index]);
-            if (op == "=") condition = v2 == v1;
-            else if (op == "<") condition = v2 < v1;
-            else if (op == ">") condition = v2 > v1;
-        } else if (holds_alternative<string>(val) && holds_alternative<string>(rec.values[index])) {
-            string v1 = get<string>(val);
-            string v2 = get<string>(rec.values[index]);
-            if (op == "=") condition = v2 == v1;
-        }
-        if (condition) {
-            for (const auto& v : rec.values) {
-                if (holds_alternative<int>(v)) cout << setw(10) << get<int>(v);
-                else cout << setw(10) << get<string>(v);
+        const auto& v = rec.values[idx];
+        bool match = false;
+        if (op == "==") match = (v == val);
+        else if (op == "!=") match = (v != val);
+        else if (op == "<") match = (v < val);
+        else if (op == ">") match = (v > val);
+        else if (op == "<=") match = (v <= val);
+        else if (op == ">=") match = (v >= val);
+
+        if (match) {
+            for (const auto& val : rec.values) {
+                if (holds_alternative<int>(val))
+                    cout << get<int>(val) << "\t";
+                else
+                    cout << get<string>(val) << "\t";
             }
-            cout << "\n";
+            cout << endl;
         }
     }
 }
 
-void Table::deleteWhere(const string& attrName, const string& op, const Value& val) {
-    int index = -1;
-    for (int i = 0; i < schema.size(); ++i)
-        if (schema[i].name == attrName)
-            index = i;
-
-    records.erase(remove_if(records.begin(), records.end(), [&](const Record& rec) {
-        bool condition = false;
-        if (holds_alternative<int>(val) && holds_alternative<int>(rec.values[index])) {
-            int v1 = get<int>(val);
-            int v2 = get<int>(rec.values[index]);
-            if (op == "=") condition = v2 == v1;
-            else if (op == "<") condition = v2 < v1;
-            else if (op == ">") condition = v2 > v1;
-        } else if (holds_alternative<string>(val) && holds_alternative<string>(rec.values[index])) {
-            string v1 = get<string>(val);
-            string v2 = get<string>(rec.values[index]);
-            if (op == "=") condition = v2 == v1;
+void Table::deleteWhere(string col, string op, Value val) {
+    int idx = -1;
+    for (int i = 0; i < schema.size(); ++i) {
+        if (schema[i].name == col) {
+            idx = i;
+            break;
         }
-        return condition;
-    }), records.end());
+    }
+
+    if (idx == -1) {
+        cout << "Column not found.\n";
+        return;
+    }
+
+    auto it = remove_if(records.begin(), records.end(), [&](const Record& rec) {
+        const auto& v = rec.values[idx];
+        if (op == "==") return v == val;
+        if (op == "!=") return v != val;
+        if (op == "<")  return v < val;
+        if (op == ">")  return v > val;
+        if (op == "<=") return v <= val;
+        if (op == ">=") return v >= val;
+        return false;
+    });
+
+    records.erase(it, records.end());
 }
 
-void Table::updateWhere(const string& attrName, const string& op, const Value& val,
-                        const string& updateAttr, const Value& newVal) {
-    int condIndex = -1, updateIndex = -1;
+void Table::updateWhere(string colWhere, string op, Value val, string colSet, Value newVal) {
+    int idxWhere = -1, idxSet = -1;
+
     for (int i = 0; i < schema.size(); ++i) {
-        if (schema[i].name == attrName) condIndex = i;
-        if (schema[i].name == updateAttr) updateIndex = i;
+        if (schema[i].name == colWhere) idxWhere = i;
+        if (schema[i].name == colSet) idxSet = i;
+    }
+
+    if (idxWhere == -1 || idxSet == -1) {
+        cout << "Column not found.\n";
+        return;
     }
 
     for (auto& rec : records) {
-        bool condition = false;
-        if (holds_alternative<int>(val) && holds_alternative<int>(rec.values[condIndex])) {
-            int v1 = get<int>(val);
-            int v2 = get<int>(rec.values[condIndex]);
-            if (op == "=") condition = v2 == v1;
-            else if (op == "<") condition = v2 < v1;
-            else if (op == ">") condition = v2 > v1;
-        } else if (holds_alternative<string>(val) && holds_alternative<string>(rec.values[condIndex])) {
-            string v1 = get<string>(val);
-            string v2 = get<string>(rec.values[condIndex]);
-            if (op == "=") condition = v2 == v1;
+        auto& targetVal = rec.values[idxWhere];
+        bool match = false;
+
+        if (op == "==") match = (targetVal == val);
+        else if (op == "!=") match = (targetVal != val);
+        else if (op == "<") match = (targetVal < val);
+        else if (op == ">") match = (targetVal > val);
+        else if (op == "<=") match = (targetVal <= val);
+        else if (op == ">=") match = (targetVal >= val);
+
+        if (match) {
+            rec.values[idxSet] = newVal;
         }
-        if (condition)
-            rec.values[updateIndex] = newVal;
     }
 }
 
 Table Table::intersect(const Table& other) const {
-    Table result("intersect_result", schema);
-    set<vector<Value>> s1, s2;
-    for (const auto& rec : records) s1.insert(rec.values);
-    for (const auto& rec : other.records) s2.insert(rec.values);
-    for (const auto& row : s1)
-        if (s2.count(row)) result.insert(Record(row));
+    Table result("IntersectResult", schema);
+
+    for (const auto& rec : records) {
+        for (const auto& orec : other.records) {
+            if (rec.values == orec.values) {
+                result.insert(rec);
+                break;
+            }
+        }
+    }
+
     return result;
 }
 
 Table Table::setUnion(const Table& other) const {
-    Table result("union_result", schema);
-    set<vector<Value>> s;
-    for (const auto& rec : records) s.insert(rec.values);
-    for (const auto& rec : other.records) s.insert(rec.values);
-    for (const auto& row : s) result.insert(Record(row));
+    Table result("UnionResult", schema);
+
+    for (const auto& rec : records)
+        result.insert(rec);
+
+    for (const auto& orec : other.records) {
+        bool exists = false;
+        for (const auto& rec : result.records) {
+            if (rec.values == orec.values) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            result.insert(orec);
+        }
+    }
+
     return result;
 }
 
-Table Table::innerJoin(const Table& other, const string& thisKey, const string& otherKey) const {
-    int index1 = -1, index2 = -1;
-    for (int i = 0; i < schema.size(); ++i)
-        if (schema[i].name == thisKey) index1 = i;
-    for (int j = 0; j < other.schema.size(); ++j)
-        if (other.schema[j].name == otherKey) index2 = j;
+Table Table::innerJoin(const Table& other, const string& col1, const string& col2) const {
+    int idx1 = -1, idx2 = -1;
+
+    for (int i = 0; i < schema.size(); ++i) {
+        if (schema[i].name == col1) idx1 = i;
+    }
+    for (int i = 0; i < other.schema.size(); ++i) {
+        if (other.schema[i].name == col2) idx2 = i;
+    }
+
+    if (idx1 == -1 || idx2 == -1) {
+        cout << "Join columns not found.\n";
+        return Table("InvalidJoin", {});
+    }
 
     vector<Attribute> newSchema = schema;
-    for (const auto& attr : other.schema) newSchema.push_back(attr);
+    newSchema.insert(newSchema.end(), other.schema.begin(), other.schema.end());
+    Table result("JoinResult", newSchema);
 
-    Table result("join_result", newSchema);
     for (const auto& rec1 : records) {
         for (const auto& rec2 : other.records) {
-            if (rec1.values[index1] == rec2.values[index2]) {
+            if (rec1.values[idx1] == rec2.values[idx2]) {
                 vector<Value> newRow = rec1.values;
                 newRow.insert(newRow.end(), rec2.values.begin(), rec2.values.end());
                 result.insert(Record(newRow));
             }
         }
     }
+
     return result;
+}
+
+void Table::saveToFile(const std::string& filename) const {
+    ofstream out(filename);
+    for (const auto& attr : schema) {
+        out << attr.name << " " << (attr.type == DataType::INT ? "INT" : "STRING") << " ";
+    }
+    out << "#" << endl; // schema-data delimiter
+
+    for (const auto& rec : records) {
+        for (const auto& val : rec.values) {
+            if (holds_alternative<int>(val))
+                out << get<int>(val) << " ";
+            else
+                out << get<string>(val) << " ";
+        }
+        out << endl;
+    }
+}
+
+Table Table::loadFromFile(const std::string& filename, const std::string& tablename) {
+    ifstream in(filename);
+    string word;
+    vector<Attribute> schema;
+
+    while (in >> word && word != "#") {
+        string type;
+        in >> type;
+        schema.emplace_back(word, type == "INT" ? DataType::INT : DataType::STRING);
+    }
+
+    Table table(tablename, schema);
+    vector<Value> row;
+    while (in >> word) {
+        if (all_of(word.begin(), word.end(), ::isdigit))
+            row.emplace_back(stoi(word));
+        else
+            row.emplace_back(word);
+
+        if (row.size() == schema.size()) {
+            table.insert(Record(row));
+            row.clear();
+        }
+    }
+
+    return table;
 }

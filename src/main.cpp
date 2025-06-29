@@ -60,8 +60,21 @@ int main() {
         else if (token == "SELECT") {
             string star, from, tableName;
             ss >> star >> from >> tableName;
-            db[tableName].print();
+
+            string whereClause;
+            getline(ss, whereClause);
+            if (whereClause.find("WHERE") != string::npos) {
+                string col, op, val;
+                stringstream whereStream(whereClause.substr(whereClause.find("WHERE") + 5));
+                whereStream >> col >> op >> val;
+
+                Value v = all_of(val.begin(), val.end(), ::isdigit) ? Value(stoi(val)) : Value(val);
+                db[tableName].selectWhere(col, op, v);
+            } else {
+                db[tableName].print();
+            }
         }
+
         else if (token == "DELETE") {
             string from, tableName, where, col, op, val;
             ss >> from >> tableName >> where >> col >> op >> val;
